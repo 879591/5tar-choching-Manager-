@@ -1,0 +1,274 @@
+{
+  "entities": {
+    "Institute": {
+      "title": "Institute",
+      "description": "A tenant coaching institute in 5tar Coaching Manager.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "logo_url": { "type": "string", "maxLength": 500 },
+        "address": { "type": "string", "maxLength": 300 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 120 },
+        "website": { "type": "string", "maxLength": 200 },
+        "owner_name": { "type": "string", "maxLength": 100 },
+        "owner_uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "primary_color": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["Active", "Suspended"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "owner_name", "owner_uid", "primary_color", "status", "created_at"]
+    },
+    "Profile": {
+      "title": "Profile",
+      "description": "User profile mapping Firebase Auth user to institute and role.",
+      "type": "object",
+      "properties": {
+        "auth_user_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "full_name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "INSTITUTE_ADMIN", "TEACHER", "STUDENT"] },
+        "avatar_url": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "linked_student_id": { "type": "string", "maxLength": 128 },
+        "linked_teacher_id": { "type": "string", "maxLength": 128 },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["auth_user_id", "institute_id", "full_name", "email", "role", "status", "created_at"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student enrolled in an institute.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "admission_number": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "full_name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "father_name": { "type": "string", "maxLength": 100 },
+        "mother_name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 120 },
+        "date_of_birth": { "type": "string", "maxLength": 20 },
+        "gender": { "type": "string", "enum": ["Male", "Female", "Other"] },
+        "address": { "type": "string", "maxLength": 300 },
+        "photo_url": { "type": "string", "maxLength": 500 },
+        "admission_date": { "type": "string", "maxLength": 20 },
+        "batch_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "admission_number", "full_name", "phone", "batch_id", "status", "created_at"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Teacher employed at an institute.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "phone": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "email": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "qualification": { "type": "string", "maxLength": 120 },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "photo_url": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "name", "phone", "email", "subject", "status", "created_at"]
+    },
+    "Batch": {
+      "title": "Batch",
+      "description": "Academic batch/class in an institute.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "course": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "teacher_id": { "type": "string", "maxLength": 128 },
+        "start_date": { "type": "string", "maxLength": 20 },
+        "timing": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "room": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "name", "course", "subject", "timing", "status", "created_at"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Daily student attendance record.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "student_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "batch_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "attendance_date": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "status": { "type": "string", "enum": ["Present", "Absent", "Late", "Leave"] },
+        "marked_by": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "student_id", "batch_id", "attendance_date", "status", "marked_by", "created_at"]
+    },
+    "Fee": {
+      "title": "Fee",
+      "description": "Student fee payment record and receipt.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "student_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "amount": { "type": "number" },
+        "payment_date": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "payment_method": { "type": "string", "enum": ["Cash", "UPI", "Bank Transfer", "Other"] },
+        "receipt_number": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "month": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "remarks": { "type": "string", "maxLength": 250 },
+        "collected_by": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "student_id", "amount", "payment_date", "payment_method", "receipt_number", "month", "collected_by", "created_at"]
+    },
+    "FeePlan": {
+      "title": "FeePlan",
+      "description": "Batch fee structure and installment schedule.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "batch_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "total_fee": { "type": "number" },
+        "installment_amount": { "type": "number" },
+        "due_date": { "type": "string", "maxLength": 20 },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "batch_id", "total_fee", "installment_amount", "created_at"]
+    },
+    "Test": {
+      "title": "Test",
+      "description": "Academic test or examination for a batch.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "batch_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "test_date": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "total_marks": { "type": "number" },
+        "passing_marks": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "batch_id", "title", "subject", "test_date", "total_marks", "passing_marks", "created_at"]
+    },
+    "Mark": {
+      "title": "Mark",
+      "description": "Marks scored by a student in a specific test.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "test_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "student_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "marks": { "type": "number" },
+        "remarks": { "type": "string", "maxLength": 250 },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "test_id", "student_id", "marks", "created_at"]
+    },
+    "Notice": {
+      "title": "Notice",
+      "description": "Announcement or notice published in an institute.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 1500 },
+        "target_role": { "type": "string", "enum": ["Everyone", "Students", "Teachers"] },
+        "publish_date": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "title", "message", "target_role", "publish_date", "created_at"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "SaaS subscription plan for a coaching institute.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "plan": { "type": "string", "enum": ["FREE", "BASIC", "PRO", "PREMIUM"] },
+        "status": { "type": "string", "enum": ["Active", "Expired", "Suspended"] },
+        "start_date": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "expiry_date": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "plan", "status", "start_date", "expiry_date", "created_at"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Security and operational audit log for tenant actions.",
+      "type": "object",
+      "properties": {
+        "institute_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "user_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "user_name": { "type": "string", "maxLength": 100 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "record_type": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "record_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["institute_id", "user_id", "action", "record_type", "record_id", "created_at"]
+    }
+  },
+  "firestore": {
+    "/institutes/{instituteId}": {
+      "schema": { "$ref": "#/entities/Institute" },
+      "description": "Coaching institute tenant records."
+    },
+    "/profiles/{userId}": {
+      "schema": { "$ref": "#/entities/Profile" },
+      "description": "User profiles keyed by Firebase Auth UID."
+    },
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Students belonging to an institute."
+    },
+    "/teachers/{teacherId}": {
+      "schema": { "$ref": "#/entities/Teacher" },
+      "description": "Teachers belonging to an institute."
+    },
+    "/batches/{batchId}": {
+      "schema": { "$ref": "#/entities/Batch" },
+      "description": "Academic batches belonging to an institute."
+    },
+    "/attendance/{attendanceId}": {
+      "schema": { "$ref": "#/entities/Attendance" },
+      "description": "Attendance records belonging to an institute."
+    },
+    "/fees/{feeId}": {
+      "schema": { "$ref": "#/entities/Fee" },
+      "description": "Fee payments and receipts belonging to an institute."
+    },
+    "/fee_plans/{planId}": {
+      "schema": { "$ref": "#/entities/FeePlan" },
+      "description": "Batch fee plans belonging to an institute."
+    },
+    "/tests/{testId}": {
+      "schema": { "$ref": "#/entities/Test" },
+      "description": "Academic tests belonging to an institute."
+    },
+    "/marks/{markId}": {
+      "schema": { "$ref": "#/entities/Mark" },
+      "description": "Student marks for tests belonging to an institute."
+    },
+    "/notices/{noticeId}": {
+      "schema": { "$ref": "#/entities/Notice" },
+      "description": "Notices published within an institute."
+    },
+    "/subscriptions/{subscriptionId}": {
+      "schema": { "$ref": "#/entities/Subscription" },
+      "description": "SaaS subscription plans per institute."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Audit logs of important actions per institute."
+    }
+  }
+}

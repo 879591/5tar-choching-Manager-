@@ -1,0 +1,383 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Primitive Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSuperAdmin() {
+      return isVerified() && (
+        request.auth.token.email == 'miss359010@gmail.com' ||
+        (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'SUPER_ADMIN')
+      );
+    }
+
+    function hasProfile() {
+      return isSignedIn() && exists(/databases/$(database)/documents/profiles/$(request.auth.uid));
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
+    }
+
+    function isTenantMember(instituteId) {
+      return isSuperAdmin() || (hasProfile() && userProfile().institute_id == instituteId && userProfile().status == 'Active');
+    }
+
+    function isInstituteAdmin(instituteId) {
+      return isSuperAdmin() || (hasProfile() && userProfile().institute_id == instituteId && userProfile().role == 'INSTITUTE_ADMIN' && userProfile().status == 'Active');
+    }
+
+    function isTeacherOrAdmin(instituteId) {
+      return isSuperAdmin() || (hasProfile() && userProfile().institute_id == instituteId && (userProfile().role == 'INSTITUTE_ADMIN' || userProfile().role == 'TEACHER') && userProfile().status == 'Active');
+    }
+
+    // 3. Entity Validation Helpers
+    function isValidInstitute(data) {
+      return data.keys().hasAll(['name', 'owner_name', 'owner_uid', 'primary_color', 'status', 'created_at']) &&
+             data.keys().hasOnly(['name', 'logo_url', 'address', 'phone', 'email', 'website', 'owner_name', 'owner_uid', 'primary_color', 'status', 'created_at']) &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             (!('logo_url' in data) || (data.logo_url is string && data.logo_url.size() <= 500)) &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
+             (!('website' in data) || (data.website is string && data.website.size() <= 200)) &&
+             data.owner_name is string && data.owner_name.size() >= 1 && data.owner_name.size() <= 100 &&
+             data.owner_uid is string && data.owner_uid.size() >= 1 && data.owner_uid.size() <= 128 &&
+             data.primary_color is string && data.primary_color.size() >= 1 && data.primary_color.size() <= 20 &&
+             (data.status == 'Active' || data.status == 'Suspended') &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidProfile(data) {
+      return data.keys().hasAll(['auth_user_id', 'institute_id', 'full_name', 'email', 'role', 'status', 'created_at']) &&
+             data.keys().hasOnly(['auth_user_id', 'institute_id', 'full_name', 'phone', 'email', 'role', 'avatar_url', 'status', 'linked_student_id', 'linked_teacher_id', 'created_at']) &&
+             data.auth_user_id is string && data.auth_user_id.size() >= 1 && data.auth_user_id.size() <= 128 &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.full_name is string && data.full_name.size() >= 1 && data.full_name.size() <= 100 &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+             data.email is string && data.email.size() >= 1 && data.email.size() <= 120 &&
+             (data.role == 'SUPER_ADMIN' || data.role == 'INSTITUTE_ADMIN' || data.role == 'TEACHER' || data.role == 'STUDENT') &&
+             (!('avatar_url' in data) || (data.avatar_url is string && data.avatar_url.size() <= 500)) &&
+             (data.status == 'Active' || data.status == 'Inactive') &&
+             (!('linked_student_id' in data) || (data.linked_student_id is string && data.linked_student_id.size() <= 128)) &&
+             (!('linked_teacher_id' in data) || (data.linked_teacher_id is string && data.linked_teacher_id.size() <= 128)) &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasAll(['institute_id', 'admission_number', 'full_name', 'phone', 'batch_id', 'status', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'admission_number', 'full_name', 'father_name', 'mother_name', 'phone', 'email', 'date_of_birth', 'gender', 'address', 'photo_url', 'admission_date', 'batch_id', 'status', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.admission_number is string && data.admission_number.size() >= 1 && data.admission_number.size() <= 50 &&
+             data.full_name is string && data.full_name.size() >= 1 && data.full_name.size() <= 100 &&
+             (!('father_name' in data) || (data.father_name is string && data.father_name.size() <= 100)) &&
+             (!('mother_name' in data) || (data.mother_name is string && data.mother_name.size() <= 100)) &&
+             data.phone is string && data.phone.size() >= 1 && data.phone.size() <= 30 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
+             (!('date_of_birth' in data) || (data.date_of_birth is string && data.date_of_birth.size() <= 20)) &&
+             (!('gender' in data) || (data.gender == 'Male' || data.gender == 'Female' || data.gender == 'Other')) &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
+             (!('photo_url' in data) || (data.photo_url is string && data.photo_url.size() <= 500)) &&
+             (!('admission_date' in data) || (data.admission_date is string && data.admission_date.size() <= 20)) &&
+             data.batch_id is string && data.batch_id.size() >= 1 && data.batch_id.size() <= 128 &&
+             (data.status == 'Active' || data.status == 'Inactive') &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidTeacher(data) {
+      return data.keys().hasAll(['institute_id', 'name', 'phone', 'email', 'subject', 'status', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'name', 'phone', 'email', 'qualification', 'subject', 'photo_url', 'status', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.phone is string && data.phone.size() >= 1 && data.phone.size() <= 30 &&
+             data.email is string && data.email.size() >= 1 && data.email.size() <= 120 &&
+             (!('qualification' in data) || (data.qualification is string && data.qualification.size() <= 120)) &&
+             data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 100 &&
+             (!('photo_url' in data) || (data.photo_url is string && data.photo_url.size() <= 500)) &&
+             (data.status == 'Active' || data.status == 'Inactive') &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidBatch(data) {
+      return data.keys().hasAll(['institute_id', 'name', 'course', 'subject', 'timing', 'status', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'name', 'course', 'subject', 'teacher_id', 'start_date', 'timing', 'room', 'status', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.course is string && data.course.size() >= 1 && data.course.size() <= 100 &&
+             data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 100 &&
+             (!('teacher_id' in data) || (data.teacher_id is string && data.teacher_id.size() <= 128)) &&
+             (!('start_date' in data) || (data.start_date is string && data.start_date.size() <= 20)) &&
+             data.timing is string && data.timing.size() >= 1 && data.timing.size() <= 80 &&
+             (!('room' in data) || (data.room is string && data.room.size() <= 50)) &&
+             (data.status == 'Active' || data.status == 'Inactive') &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['institute_id', 'student_id', 'batch_id', 'attendance_date', 'status', 'marked_by', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'student_id', 'batch_id', 'attendance_date', 'status', 'marked_by', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.student_id is string && data.student_id.size() >= 1 && data.student_id.size() <= 128 &&
+             data.batch_id is string && data.batch_id.size() >= 1 && data.batch_id.size() <= 128 &&
+             data.attendance_date is string && data.attendance_date.size() >= 1 && data.attendance_date.size() <= 20 &&
+             (data.status == 'Present' || data.status == 'Absent' || data.status == 'Late' || data.status == 'Leave') &&
+             data.marked_by is string && data.marked_by.size() >= 1 && data.marked_by.size() <= 128 &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidFee(data) {
+      return data.keys().hasAll(['institute_id', 'student_id', 'amount', 'payment_date', 'payment_method', 'receipt_number', 'month', 'collected_by', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'student_id', 'amount', 'payment_date', 'payment_method', 'receipt_number', 'month', 'remarks', 'collected_by', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.student_id is string && data.student_id.size() >= 1 && data.student_id.size() <= 128 &&
+             (data.amount is int || data.amount is float) && data.amount > 0 &&
+             data.payment_date is string && data.payment_date.size() >= 1 && data.payment_date.size() <= 20 &&
+             (data.payment_method == 'Cash' || data.payment_method == 'UPI' || data.payment_method == 'Bank Transfer' || data.payment_method == 'Other') &&
+             data.receipt_number is string && data.receipt_number.size() >= 1 && data.receipt_number.size() <= 50 &&
+             data.month is string && data.month.size() >= 1 && data.month.size() <= 50 &&
+             (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 250)) &&
+             data.collected_by is string && data.collected_by.size() >= 1 && data.collected_by.size() <= 128 &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidFeePlan(data) {
+      return data.keys().hasAll(['institute_id', 'batch_id', 'total_fee', 'installment_amount', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'batch_id', 'total_fee', 'installment_amount', 'due_date', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.batch_id is string && data.batch_id.size() >= 1 && data.batch_id.size() <= 128 &&
+             (data.total_fee is int || data.total_fee is float) && data.total_fee >= 0 &&
+             (data.installment_amount is int || data.installment_amount is float) && data.installment_amount >= 0 &&
+             (!('due_date' in data) || (data.due_date is string && data.due_date.size() <= 20)) &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidTest(data) {
+      return data.keys().hasAll(['institute_id', 'batch_id', 'title', 'subject', 'test_date', 'total_marks', 'passing_marks', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'batch_id', 'title', 'subject', 'test_date', 'total_marks', 'passing_marks', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.batch_id is string && data.batch_id.size() >= 1 && data.batch_id.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 100 &&
+             data.test_date is string && data.test_date.size() >= 1 && data.test_date.size() <= 20 &&
+             (data.total_marks is int || data.total_marks is float) && data.total_marks > 0 &&
+             (data.passing_marks is int || data.passing_marks is float) && data.passing_marks >= 0 && data.passing_marks <= data.total_marks &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidMark(data) {
+      return data.keys().hasAll(['institute_id', 'test_id', 'student_id', 'marks', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'test_id', 'student_id', 'marks', 'remarks', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.test_id is string && data.test_id.size() >= 1 && data.test_id.size() <= 128 &&
+             data.student_id is string && data.student_id.size() >= 1 && data.student_id.size() <= 128 &&
+             (data.marks is int || data.marks is float) && data.marks >= 0 &&
+             (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 250)) &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidNotice(data) {
+      return data.keys().hasAll(['institute_id', 'title', 'message', 'target_role', 'publish_date', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'title', 'message', 'target_role', 'publish_date', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 150 &&
+             data.message is string && data.message.size() >= 1 && data.message.size() <= 1500 &&
+             (data.target_role == 'Everyone' || data.target_role == 'Students' || data.target_role == 'Teachers') &&
+             data.publish_date is string && data.publish_date.size() >= 1 && data.publish_date.size() <= 20 &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidSubscription(data) {
+      return data.keys().hasAll(['institute_id', 'plan', 'status', 'start_date', 'expiry_date', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'plan', 'status', 'start_date', 'expiry_date', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             (data.plan == 'FREE' || data.plan == 'BASIC' || data.plan == 'PRO' || data.plan == 'PREMIUM') &&
+             (data.status == 'Active' || data.status == 'Expired' || data.status == 'Suspended') &&
+             data.start_date is string && data.start_date.size() >= 1 && data.start_date.size() <= 20 &&
+             data.expiry_date is string && data.expiry_date.size() >= 1 && data.expiry_date.size() <= 20 &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['institute_id', 'user_id', 'action', 'record_type', 'record_id', 'created_at']) &&
+             data.keys().hasOnly(['institute_id', 'user_id', 'user_name', 'action', 'record_type', 'record_id', 'created_at']) &&
+             data.institute_id is string && data.institute_id.size() >= 1 && data.institute_id.size() <= 128 &&
+             data.user_id is string && data.user_id.size() >= 1 && data.user_id.size() <= 128 &&
+             (!('user_name' in data) || (data.user_name is string && data.user_name.size() <= 100)) &&
+             data.action is string && data.action.size() >= 1 && data.action.size() <= 150 &&
+             data.record_type is string && data.record_type.size() >= 1 && data.record_type.size() <= 50 &&
+             data.record_id is string && data.record_id.size() >= 1 && data.record_id.size() <= 128 &&
+             data.created_at is string && data.created_at.size() <= 40;
+    }
+
+    // 4. Collection Rules
+
+    match /institutes/{instituteId} {
+      allow get: if isSignedIn() && isValidId(instituteId) && (existing().owner_uid == request.auth.uid || isTenantMember(instituteId));
+      allow list: if isSignedIn() && (existing().owner_uid == request.auth.uid || isSuperAdmin());
+      allow create: if isVerified() && isValidId(instituteId) && isValidInstitute(incoming()) && (incoming().owner_uid == request.auth.uid || isSuperAdmin());
+      allow update: if isVerified() && isValidId(instituteId) && isValidInstitute(incoming()) && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isInstituteAdmin(instituteId) && incoming().owner_uid == existing().owner_uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'logo_url', 'address', 'phone', 'email', 'website', 'owner_name', 'primary_color']))
+      );
+      allow delete: if isSuperAdmin() && isValidId(instituteId);
+    }
+
+    match /profiles/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (userId == request.auth.uid || isInstituteAdmin(existing().institute_id));
+      allow list: if isSignedIn() && (existing().auth_user_id == request.auth.uid || isSuperAdmin());
+      allow create: if isVerified() && isValidId(userId) && isValidProfile(incoming()) && (
+        isSuperAdmin() ||
+        (userId == request.auth.uid && incoming().auth_user_id == request.auth.uid && (incoming().role == 'INSTITUTE_ADMIN' || incoming().role == 'TEACHER' || incoming().role == 'STUDENT')) ||
+        isInstituteAdmin(incoming().institute_id)
+      );
+      allow update: if isVerified() && isValidId(userId) && isValidProfile(incoming()) && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (userId == request.auth.uid && incoming().auth_user_id == existing().auth_user_id && incoming().diff(existing()).affectedKeys().hasOnly(['full_name', 'phone', 'avatar_url', 'institute_id', 'role', 'linked_student_id', 'linked_teacher_id'])) ||
+        (isInstituteAdmin(existing().institute_id) && incoming().institute_id == existing().institute_id && incoming().diff(existing()).affectedKeys().hasOnly(['full_name', 'phone', 'role', 'status', 'linked_student_id', 'linked_teacher_id']))
+      );
+      allow delete: if isSuperAdmin() && isValidId(userId);
+    }
+
+    match /students/{studentId} {
+      allow get: if isSignedIn() && isValidId(studentId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow create: if isVerified() && isValidId(studentId) && isValidStudent(incoming()) && isInstituteAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(studentId) && isValidStudent(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['admission_number', 'full_name', 'father_name', 'mother_name', 'phone', 'email', 'date_of_birth', 'gender', 'address', 'photo_url', 'admission_date', 'batch_id', 'status']))
+      );
+      allow delete: if isVerified() && isValidId(studentId) && isInstituteAdmin(existing().institute_id);
+    }
+
+    match /teachers/{teacherId} {
+      allow get: if isSignedIn() && isValidId(teacherId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow create: if isVerified() && isValidId(teacherId) && isValidTeacher(incoming()) && isInstituteAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(teacherId) && isValidTeacher(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'qualification', 'subject', 'photo_url', 'status']))
+      );
+      allow delete: if isVerified() && isValidId(teacherId) && isInstituteAdmin(existing().institute_id);
+    }
+
+    match /batches/{batchId} {
+      allow get: if isSignedIn() && isValidId(batchId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow create: if isVerified() && isValidId(batchId) && isValidBatch(incoming()) && isInstituteAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(batchId) && isValidBatch(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'course', 'subject', 'teacher_id', 'start_date', 'timing', 'room', 'status']))
+      );
+      allow delete: if isVerified() && isValidId(batchId) && isInstituteAdmin(existing().institute_id);
+    }
+
+    match /attendance/{attendanceId} {
+      allow get: if isSignedIn() && isValidId(attendanceId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow create: if isVerified() && isValidId(attendanceId) && isValidAttendance(incoming()) && isTeacherOrAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(attendanceId) && isValidAttendance(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isTeacherOrAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'marked_by']))
+      );
+      allow delete: if isVerified() && isValidId(attendanceId) && isInstituteAdmin(existing().institute_id);
+    }
+
+    match /fees/{feeId} {
+      allow get: if isSignedIn() && isValidId(feeId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow create: if isVerified() && isValidId(feeId) && isValidFee(incoming()) && isInstituteAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(feeId) && isValidFee(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['amount', 'payment_date', 'payment_method', 'month', 'remarks']))
+      );
+      allow delete: if isVerified() && isValidId(feeId) && isInstituteAdmin(existing().institute_id);
+    }
+
+    match /fee_plans/{planId} {
+      allow get: if isSignedIn() && isValidId(planId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow create: if isVerified() && isValidId(planId) && isValidFeePlan(incoming()) && isInstituteAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(planId) && isValidFeePlan(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['total_fee', 'installment_amount', 'due_date']))
+      );
+      allow delete: if isVerified() && isValidId(planId) && isInstituteAdmin(existing().institute_id);
+    }
+
+    match /tests/{testId} {
+      allow get: if isSignedIn() && isValidId(testId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow create: if isVerified() && isValidId(testId) && isValidTest(incoming()) && isTeacherOrAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(testId) && isValidTest(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isTeacherOrAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'subject', 'test_date', 'total_marks', 'passing_marks', 'batch_id']))
+      );
+      allow delete: if isVerified() && isValidId(testId) && isTeacherOrAdmin(existing().institute_id);
+    }
+
+    match /marks/{markId} {
+      allow get: if isSignedIn() && isValidId(markId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow create: if isVerified() && isValidId(markId) && isValidMark(incoming()) && isTeacherOrAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(markId) && isValidMark(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isTeacherOrAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['marks', 'remarks']))
+      );
+      allow delete: if isVerified() && isValidId(markId) && isTeacherOrAdmin(existing().institute_id);
+    }
+
+    match /notices/{noticeId} {
+      allow get: if isSignedIn() && isValidId(noticeId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow create: if isVerified() && isValidId(noticeId) && isValidNotice(incoming()) && isInstituteAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(noticeId) && isValidNotice(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'message', 'target_role', 'publish_date']))
+      );
+      allow delete: if isVerified() && isValidId(noticeId) && isInstituteAdmin(existing().institute_id);
+    }
+
+    match /subscriptions/{subscriptionId} {
+      allow get: if isSignedIn() && isValidId(subscriptionId) && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && (isSuperAdmin() || isTenantMember(existing().institute_id));
+      allow create: if isVerified() && isValidId(subscriptionId) && isValidSubscription(incoming()) && isInstituteAdmin(incoming().institute_id);
+      allow update: if isVerified() && isValidId(subscriptionId) && isValidSubscription(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
+        isSuperAdmin() ||
+        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['plan', 'status', 'start_date', 'expiry_date']))
+      );
+      allow delete: if isSuperAdmin() && isValidId(subscriptionId);
+    }
+
+    match /audit_logs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && isInstituteAdmin(existing().institute_id);
+      allow list: if isSignedIn() && (isSuperAdmin() || isInstituteAdmin(existing().institute_id));
+      allow create: if isVerified() && isValidId(logId) && isValidAuditLog(incoming()) && isTenantMember(incoming().institute_id) && incoming().user_id == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

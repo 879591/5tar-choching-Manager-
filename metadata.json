@@ -1,0 +1,6 @@
+{
+  "name": "5tar Coaching Manager",
+  "description": "Multi-tenant Coaching Management Software for Indian coaching institutes with attendance, fees, receipts, tests, results, ID cards, and reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
