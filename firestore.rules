@@ -199,6 +199,20 @@ service cloud.firestore {
              data.created_at is string && data.created_at.size() <= 40;
     }
 
+    function isValidOtpAuthRecord(data) {
+      return data.keys().hasAll(['identifier', 'otp', 'expiresAt', 'purpose', 'updatedAt']) &&
+             data.keys().hasOnly(['identifier', 'otp', 'expiresAt', 'purpose', 'uid', 'email', 'passwordHash', 'displayName', 'updatedAt']) &&
+             data.identifier is string && data.identifier.size() >= 1 && data.identifier.size() <= 120 &&
+             data.otp is string && data.otp.size() >= 1 && data.otp.size() <= 10 &&
+             (data.expiresAt is int || data.expiresAt is float) &&
+             data.purpose is string && data.purpose.size() <= 60 &&
+             (!('uid' in data) || (data.uid is string && data.uid.size() <= 128)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
+             (!('passwordHash' in data) || (data.passwordHash is string && data.passwordHash.size() <= 128)) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
     // 4. Collection Rules (Supporting both Firebase Auth and OTP Verified Sessions with strict schema validation)
 
     match /institutes/{instituteId} {
@@ -302,6 +316,14 @@ service cloud.firestore {
       allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
       allow create: if isValidId(logId) && isValidAuditLog(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
       allow update, delete: if false;
+    }
+
+    match /auth_otps/{otpKey} {
+      allow get: if otpKey is string && otpKey.size() >= 1 && otpKey.size() <= 128;
+      allow list: if false;
+      allow create: if otpKey is string && otpKey.size() >= 1 && otpKey.size() <= 128 && isValidOtpAuthRecord(incoming());
+      allow update: if otpKey is string && otpKey.size() >= 1 && otpKey.size() <= 128 && isValidOtpAuthRecord(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['identifier', 'otp', 'expiresAt', 'purpose', 'uid', 'email', 'passwordHash', 'displayName', 'updatedAt']);
+      allow delete: if false;
     }
   }
 }

@@ -24,6 +24,7 @@ import { Student } from '../types';
 import { StudentIdCardModal } from '../components/StudentIdCardModal';
 import { ResultCardModal } from '../components/ResultCardModal';
 import { compressImageFileToDataUrl, identifierToAuthEmail } from '../utils/image';
+import { sendUniversalOtp, verifyUniversalOtpAndCreateAccount } from '../services/otpAuth';
 
 interface StudentsPageProps {
   onNavigateToFeeForStudent?: (studentId: string) => void;
@@ -89,22 +90,20 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
     }
     setSendingOtp(true);
     try {
-      const res = await fetch('/api/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier: phone.trim(),
-          phone: phone.trim(),
-          email: email.trim() || undefined,
-          purpose: 'Student Admission Verification',
-        }),
+      const data = await sendUniversalOtp({
+        identifier: phone.trim(),
+        phone: phone.trim(),
+        email: email.trim() || undefined,
+        purpose: 'Student Admission Verification',
       });
-      const data = await res.json();
-      if (res.ok && data.otp) {
-        setStudentOtpPreview(data.otp);
-        setStudentOtpCode(data.otp);
-        setStudentWhatsappUrl(data.whatsappOtpUrl || null);
-      }
+      setStudentOtpPreview(data.otp);
+      setStudentOtpCode(data.otp);
+      setStudentWhatsappUrl(data.whatsappOtpUrl || null);
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'OTP जनरेट करने में समस्या आई।',
+      });
     } finally {
       setSendingOtp(false);
     }
@@ -202,16 +201,13 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
 
       if (studentInitialPassword.trim().length >= 6 && studentOtpCode.trim()) {
         const studentAuthEmail = identifierToAuthEmail(phone, coachingCode);
-        await fetch('/api/auth/verify-otp-and-create-account', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            identifier: phone.trim(),
-            otp: studentOtpCode.trim(),
-            authEmail: studentAuthEmail,
-            password: studentInitialPassword.trim(),
-            displayName: fullName.trim(),
-          }),
+        await verifyUniversalOtpAndCreateAccount({
+          identifier: phone.trim(),
+          otp: studentOtpCode.trim(),
+          authEmail: studentAuthEmail,
+          password: studentInitialPassword.trim(),
+          displayName: fullName.trim(),
+          expectedOtp: studentOtpPreview,
         });
       }
 

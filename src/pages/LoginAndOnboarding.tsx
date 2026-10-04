@@ -24,6 +24,11 @@ import {
 } from '../services/database';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { compressImageFileToDataUrl, identifierToAuthEmail } from '../utils/image';
+import {
+  loginUniversalWithPassword,
+  sendUniversalOtp,
+  verifyUniversalOtpAndCreateAccount,
+} from '../services/otpAuth';
 
 type AuthPortalTab = 'LOGIN' | 'REGISTER_COACHING' | 'REGISTER_STUDENT';
 
@@ -76,27 +81,14 @@ export const LoginAndOnboardingView: React.FC = () => {
     setAuthNotice(null);
   };
 
-  // Helper: Send 6-Digit OTP via Server (Real Gmail SMTP + Fast2SMS / Twilio + WhatsApp Link)
+  // Helper: Send 6-Digit OTP (Works on Express Backend + Downloaded PWA + Static Cloud Deployments)
   const requestOtpFromServer = async (params: {
     identifier: string;
     email?: string;
     phone?: string;
     purpose: string;
   }): Promise<{ otp: string; message: string; whatsappOtpUrl: string | null }> => {
-    const res = await fetch('/api/auth/send-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'OTP भेजने में समस्या आई।');
-    }
-    return {
-      otp: data.otp as string,
-      message: data.message as string,
-      whatsappOtpUrl: (data.whatsappOtpUrl as string) || null,
-    };
+    return sendUniversalOtp(params);
   };
 
   // Helper: Verify OTP & Create/Update Account then Activate Session
@@ -106,23 +98,10 @@ export const LoginAndOnboardingView: React.FC = () => {
     authEmail: string;
     password: string;
     displayName: string;
+    expectedOtp?: string | null;
   }) => {
-    const res = await fetch('/api/auth/verify-otp-and-create-account', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'OTP सत्यापन विफल रहा।');
-    }
-
-    setCustomSessionUser({
-      uid: data.uid as string,
-      email: data.email as string,
-      displayName: (data.displayName as string) || params.displayName,
-      emailVerified: true,
-    });
+    const sessionUser = await verifyUniversalOtpAndCreateAccount(params);
+    setCustomSessionUser(sessionUser);
   };
 
   // Handle Gallery Photo Selection for Student
@@ -147,41 +126,19 @@ export const LoginAndOnboardingView: React.FC = () => {
       return;
     }
 
-    let targetEmail = loginEmailOrPhone.trim().toLowerCase();
-    if (loginMode === 'STUDENT_CODE') {
-      if (!loginCoachingCode.trim()) {
-        setErrorMsg('कृपया अपना Coaching Code दर्ज करें।');
-        return;
-      }
-      targetEmail = identifierToAuthEmail(loginEmailOrPhone, loginCoachingCode);
-    } else if (!targetEmail.includes('@')) {
-      targetEmail = identifierToAuthEmail(loginEmailOrPhone);
+    if (loginMode === 'STUDENT_CODE' && !loginCoachingCode.trim()) {
+      setErrorMsg('कृपया अपना Coaching Code दर्ज करें।');
+      return;
     }
 
     setSigningIn(true);
     try {
-      const res = await fetch('/api/auth/login-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          authEmail: targetEmail,
-          identifier: loginEmailOrPhone.trim(),
-          password: loginPassword,
-        }),
+      const sessionUser = await loginUniversalWithPassword({
+        identifier: loginEmailOrPhone.trim(),
+        coachingCode: loginMode === 'STUDENT_CODE' ? loginCoachingCode.trim() : undefined,
+        password: loginPassword,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(
-          data.error ||
-            'लॉगिन नहीं हो सका। यदि आप नए हैं तो पहले "नई कोचिंग (OTP)" या "छात्र जुड़ें (OTP)" टैब से रजिस्टर करें।'
-        );
-      }
-      setCustomSessionUser({
-        uid: data.uid as string,
-        email: data.email as string,
-        displayName: (data.displayName as string) || loginEmailOrPhone.trim(),
-        emailVerified: true,
-      });
+      setCustomSessionUser(sessionUser);
     } catch (err: unknown) {
       setErrorMsg(
         err instanceof Error
@@ -241,6 +198,7 @@ export const LoginAndOnboardingView: React.FC = () => {
         authEmail: ownerEmail.trim(),
         password: adminPassword,
         displayName: ownerName.trim(),
+        expectedOtp: coachingServerOtpPreview,
       });
 
       const { institute } = await createFirstInstituteForAdmin({
@@ -310,6 +268,7 @@ export const LoginAndOnboardingView: React.FC = () => {
         authEmail: studentAuthEmail,
         password: stuPassword,
         displayName: stuPhoneOrAdm.trim(),
+        expectedOtp: studentServerOtpPreview,
       });
 
       await linkStudentToInstituteByCode({

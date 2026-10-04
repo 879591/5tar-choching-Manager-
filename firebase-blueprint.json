@@ -216,6 +216,23 @@
         "created_at": { "type": "string", "format": "date-time" }
       },
       "required": ["institute_id", "user_id", "action", "record_type", "record_id", "created_at"]
+    },
+    "OtpAuthRecord": {
+      "title": "OtpAuthRecord",
+      "description": "OTP verification and password credential record for standalone PWA and cloud deployments.",
+      "type": "object",
+      "properties": {
+        "identifier": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "otp": { "type": "string", "minLength": 1, "maxLength": 10 },
+        "expiresAt": { "type": "number" },
+        "purpose": { "type": "string", "maxLength": 60 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 120 },
+        "passwordHash": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["identifier", "otp", "expiresAt", "purpose", "updatedAt"]
     }
   },
   "firestore": {
@@ -270,6 +287,10 @@
     "/audit_logs/{logId}": {
       "schema": { "$ref": "#/entities/AuditLog" },
       "description": "Audit logs of important actions per institute."
+    },
+    "/auth_otps/{otpKey}": {
+      "schema": { "$ref": "#/entities/OtpAuthRecord" },
+      "description": "OTP verification and credential records."
     }
   }
 }
