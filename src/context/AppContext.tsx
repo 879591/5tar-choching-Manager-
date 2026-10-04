@@ -114,6 +114,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const prof: Profile = { id: snap.id, ...data };
           setProfile(prof);
           setActiveRole(prof.role);
+          if (prof.linked_student_id) {
+            setSelectedStudentId(prof.linked_student_id);
+          }
+          if (prof.linked_teacher_id) {
+            setSelectedTeacherId(prof.linked_teacher_id);
+          }
         } else {
           setProfile(null);
         }

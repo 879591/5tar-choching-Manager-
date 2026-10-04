@@ -59,9 +59,10 @@ service cloud.firestore {
     // 3. Entity Validation Helpers
     function isValidInstitute(data) {
       return data.keys().hasAll(['name', 'owner_name', 'owner_uid', 'primary_color', 'status', 'created_at']) &&
-             data.keys().hasOnly(['name', 'logo_url', 'address', 'phone', 'email', 'website', 'owner_name', 'owner_uid', 'primary_color', 'status', 'created_at']) &&
+             data.keys().hasOnly(['institute_code', 'name', 'logo_url', 'address', 'phone', 'email', 'website', 'owner_name', 'owner_uid', 'primary_color', 'status', 'created_at']) &&
+             (!('institute_code' in data) || (data.institute_code is string && data.institute_code.size() <= 30)) &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
-             (!('logo_url' in data) || (data.logo_url is string && data.logo_url.size() <= 500)) &&
+             (!('logo_url' in data) || (data.logo_url is string && data.logo_url.size() <= 500000)) &&
              (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
              (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
              (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
@@ -82,7 +83,7 @@ service cloud.firestore {
              (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
              data.email is string && data.email.size() >= 1 && data.email.size() <= 120 &&
              (data.role == 'SUPER_ADMIN' || data.role == 'INSTITUTE_ADMIN' || data.role == 'TEACHER' || data.role == 'STUDENT') &&
-             (!('avatar_url' in data) || (data.avatar_url is string && data.avatar_url.size() <= 500)) &&
+             (!('avatar_url' in data) || (data.avatar_url is string && data.avatar_url.size() <= 500000)) &&
              (data.status == 'Active' || data.status == 'Inactive') &&
              (!('linked_student_id' in data) || (data.linked_student_id is string && data.linked_student_id.size() <= 128)) &&
              (!('linked_teacher_id' in data) || (data.linked_teacher_id is string && data.linked_teacher_id.size() <= 128)) &&
@@ -102,7 +103,7 @@ service cloud.firestore {
              (!('date_of_birth' in data) || (data.date_of_birth is string && data.date_of_birth.size() <= 20)) &&
              (!('gender' in data) || (data.gender == 'Male' || data.gender == 'Female' || data.gender == 'Other')) &&
              (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
-             (!('photo_url' in data) || (data.photo_url is string && data.photo_url.size() <= 500)) &&
+             (!('photo_url' in data) || (data.photo_url is string && data.photo_url.size() <= 500000)) &&
              (!('admission_date' in data) || (data.admission_date is string && data.admission_date.size() <= 20)) &&
              data.batch_id is string && data.batch_id.size() >= 1 && data.batch_id.size() <= 128 &&
              (data.status == 'Active' || data.status == 'Inactive') &&
@@ -238,11 +239,11 @@ service cloud.firestore {
 
     match /institutes/{instituteId} {
       allow get: if isSignedIn() && isValidId(instituteId) && (existing().owner_uid == request.auth.uid || isTenantMember(instituteId));
-      allow list: if isSignedIn() && (existing().owner_uid == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (existing().owner_uid == request.auth.uid || isSuperAdmin() || existing().status == 'Active');
       allow create: if isVerified() && isValidId(instituteId) && isValidInstitute(incoming()) && (incoming().owner_uid == request.auth.uid || isSuperAdmin());
       allow update: if isVerified() && isValidId(instituteId) && isValidInstitute(incoming()) && incoming().created_at == existing().created_at && (
         isSuperAdmin() ||
-        (isInstituteAdmin(instituteId) && incoming().owner_uid == existing().owner_uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'logo_url', 'address', 'phone', 'email', 'website', 'owner_name', 'primary_color']))
+        (isInstituteAdmin(instituteId) && incoming().owner_uid == existing().owner_uid && incoming().diff(existing()).affectedKeys().hasOnly(['institute_code', 'name', 'logo_url', 'address', 'phone', 'email', 'website', 'owner_name', 'primary_color']))
       );
       allow delete: if isSuperAdmin() && isValidId(instituteId);
     }
@@ -265,11 +266,12 @@ service cloud.firestore {
 
     match /students/{studentId} {
       allow get: if isSignedIn() && isValidId(studentId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
+      allow list: if isSignedIn() && (isTenantMember(existing().institute_id) || existing().status == 'Active');
       allow create: if isVerified() && isValidId(studentId) && isValidStudent(incoming()) && isInstituteAdmin(incoming().institute_id);
       allow update: if isVerified() && isValidId(studentId) && isValidStudent(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
         isSuperAdmin() ||
-        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['admission_number', 'full_name', 'father_name', 'mother_name', 'phone', 'email', 'date_of_birth', 'gender', 'address', 'photo_url', 'admission_date', 'batch_id', 'status']))
+        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['admission_number', 'full_name', 'father_name', 'mother_name', 'phone', 'email', 'date_of_birth', 'gender', 'address', 'photo_url', 'admission_date', 'batch_id', 'status'])) ||
+        (isTenantMember(existing().institute_id) && userProfile().linked_student_id == studentId && incoming().diff(existing()).affectedKeys().hasOnly(['photo_url', 'address', 'email']))
       );
       allow delete: if isVerified() && isValidId(studentId) && isInstituteAdmin(existing().institute_id);
     }

@@ -16,6 +16,7 @@ export enum OperationType {
 
 export interface Institute {
   id: string;
+  institute_code?: string;
   name: string;
   logo_url?: string;
   address?: string;

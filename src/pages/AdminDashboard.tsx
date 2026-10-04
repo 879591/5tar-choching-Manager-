@@ -127,16 +127,23 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
       {/* Institute Welcome Banner */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span>{institute?.name}</span>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span className="font-semibold text-slate-900">{institute?.name}</span>
             <span aria-hidden="true">·</span>
-            <span>Academic Session 2026–27</span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 font-mono font-bold text-amber-950 border border-amber-300">
+              Coaching Code: {institute?.institute_code || institute?.id.slice(0, 8).toUpperCase()}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>Session 2026–27</span>
             <span aria-hidden="true">·</span>
             <span className="font-mono">{today}</span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1.5">
             Institute Operations Overview
           </h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            विद्यार्थियों को जोड़ने के लिए उन्हें अपना Coaching Code (<strong>{institute?.institute_code || institute?.id.slice(0, 8).toUpperCase()}</strong>) और उनका रजिस्टर्ड मोबाइल नंबर दें।
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           {students.length === 0 && (

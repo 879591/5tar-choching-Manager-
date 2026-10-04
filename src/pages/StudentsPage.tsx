@@ -1,12 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Camera,
   CreditCard,
   Edit2,
   FileText,
   IdCard,
+  KeyRound,
   Plus,
   Search,
+  Smartphone,
   Trash2,
+  Upload,
   UserCheck,
   X,
 } from 'lucide-react';
@@ -19,6 +23,7 @@ import {
 import { Student } from '../types';
 import { StudentIdCardModal } from '../components/StudentIdCardModal';
 import { ResultCardModal } from '../components/ResultCardModal';
+import { compressImageFileToDataUrl, identifierToAuthEmail } from '../utils/image';
 
 interface StudentsPageProps {
   onNavigateToFeeForStudent?: (studentId: string) => void;
@@ -56,8 +61,47 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
   const [admissionDate, setAdmissionDate] = useState(new Date().toISOString().split('T')[0]);
   const [status, setStatus] = useState<'Active' | 'Inactive'>('Active');
 
+  // Optional Student OTP & Password setup inside Admin Modal
+  const [studentInitialPassword, setStudentInitialPassword] = useState('');
+  const [studentOtpCode, setStudentOtpCode] = useState('');
+  const [studentOtpPreview, setStudentOtpPreview] = useState<string | null>(null);
+  const [sendingOtp, setSendingOtp] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleGalleryPhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, 360, 360, 0.8);
+      setPhotoUrl(dataUrl);
+    } catch {
+      setFeedback({ type: 'error', message: 'फोटो लोड नहीं हो सकी। कृपया दूसरी फोटो चुनें।' });
+    }
+  };
+
+  const handleSendStudentOtpFromAdmin = async () => {
+    if (!phone.trim()) {
+      setFeedback({ type: 'error', message: 'OTP भेजने के लिए पहले छात्र का मोबाइल नंबर भरें।' });
+      return;
+    }
+    setSendingOtp(true);
+    try {
+      const res = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: phone.trim(), purpose: 'ADMIN_ADD_STUDENT' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.otp) {
+        setStudentOtpPreview(data.otp);
+        setStudentOtpCode(data.otp);
+      }
+    } finally {
+      setSendingOtp(false);
+    }
+  };
 
   const generateAdmissionNumber = () => {
     const year = new Date().getFullYear();
@@ -81,6 +125,9 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
     setBatchId(batches[0]?.id || '');
     setAdmissionDate(new Date().toISOString().split('T')[0]);
     setStatus('Active');
+    setStudentInitialPassword('');
+    setStudentOtpCode('');
+    setStudentOtpPreview(null);
     setShowFormModal(true);
   };
 
@@ -99,6 +146,9 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
     setBatchId(st.batch_id);
     setAdmissionDate(st.admission_date || new Date().toISOString().split('T')[0]);
     setStatus(st.status);
+    setStudentInitialPassword('');
+    setStudentOtpCode('');
+    setStudentOtpPreview(null);
     setShowFormModal(true);
   };
 
@@ -141,6 +191,23 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
     setSaving(true);
     setFeedback(null);
     try {
+      const coachingCode = institute.institute_code || institute.id.slice(0, 8).toUpperCase();
+
+      if (studentInitialPassword.trim().length >= 6 && studentOtpCode.trim()) {
+        const studentAuthEmail = identifierToAuthEmail(phone, coachingCode);
+        await fetch('/api/auth/verify-otp-and-create-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identifier: phone.trim(),
+            otp: studentOtpCode.trim(),
+            authEmail: studentAuthEmail,
+            password: studentInitialPassword.trim(),
+            displayName: fullName.trim(),
+          }),
+        });
+      }
+
       if (editingStudent) {
         await updateStudentRecord(institute.id, editingStudent.id, {
           admission_number: admissionNumber,
@@ -159,8 +226,9 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
         });
         setFeedback({ type: 'success', message: 'Student profile updated successfully.' });
       } else {
+        const finalAdm = admissionNumber || generateAdmissionNumber();
         await createStudentRecord(institute.id, {
-          admission_number: admissionNumber || generateAdmissionNumber(),
+          admission_number: finalAdm,
           full_name: fullName,
           father_name: fatherName,
           mother_name: motherName,
@@ -174,7 +242,10 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
           batch_id: batchId,
           status,
         });
-        setFeedback({ type: 'success', message: 'New student admitted and saved to database.' });
+        setFeedback({
+          type: 'success',
+          message: `छात्र "${fullName}" को सफलतापूर्वक जोड़ दिया गया है! छात्र अपने मोबाइल (${phone}) और Coaching Code (${coachingCode}) से OTP या पासवर्ड द्वारा लॉगिन कर सकता है।`,
+        });
       }
       setShowFormModal(false);
     } catch (err) {
@@ -597,7 +668,7 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email (for Student Login)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email (Optional)</label>
                   <input
                     type="email"
                     placeholder="student@email.com"
@@ -607,15 +678,85 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Photo URL (Optional)</label>
-                  <input
-                    type="url"
-                    placeholder="https://..."
-                    value={photoUrl}
-                    onChange={(e) => setPhotoUrl(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                  />
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Student Photo from Gallery (गैलरी से फोटो लगाएं)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    {photoUrl ? (
+                      <img
+                        src={photoUrl}
+                        alt="Student Preview"
+                        className="w-10 h-10 rounded-lg object-cover border border-amber-500 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center text-slate-400 shrink-0">
+                        <Camera className="w-4 h-4" />
+                      </div>
+                    )}
+                    <label className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100 cursor-pointer">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{photoUrl ? 'Change Gallery Photo' : 'Upload from Gallery'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleGalleryPhotoSelect}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
                 </div>
+              </div>
+
+              {/* Student Mobile OTP & Password Setup Box */}
+              <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Smartphone className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Student OTP &amp; Login Access (कोचिंग कोड: {institute?.institute_code || institute?.id.slice(0, 8).toUpperCase()})</span>
+                    </p>
+                    <p className="text-[11px] text-slate-600">
+                      छात्र बाद में खुद भी अपने मोबाइल पर OTP मंगाकर पासवर्ड बना सकता है, या आप अभी OTP जनरेट कर सकते हैं:
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={sendingOtp}
+                    onClick={handleSendStudentOtpFromAdmin}
+                    className="px-3 py-1.5 rounded-lg bg-slate-900 text-amber-400 text-xs font-semibold hover:bg-slate-800 cursor-pointer"
+                  >
+                    {sendingOtp ? 'Generating...' : 'Send OTP to Student'}
+                  </button>
+                </div>
+
+                {studentOtpPreview && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-amber-950 mb-1">
+                        Generated Student OTP (शेयर करें): <span className="font-mono font-bold underline">{studentOtpPreview}</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={studentOtpCode}
+                        onChange={(e) => setStudentOtpCode(e.target.value)}
+                        placeholder="6-digit OTP"
+                        className="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-amber-950 mb-1">
+                        Set Student Password (Optional, min 6 chars)
+                      </label>
+                      <input
+                        type="text"
+                        value={studentInitialPassword}
+                        onChange={(e) => setStudentInitialPassword(e.target.value)}
+                        placeholder="e.g., student123"
+                        className="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-900"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>

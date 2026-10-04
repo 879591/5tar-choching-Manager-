@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Bell, IdCard, Plus, Printer, Trash2 } from 'lucide-react';
+import { Bell, Camera, IdCard, Plus, Printer, Trash2, Upload } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import {
   createNoticeRecord,
@@ -8,6 +8,7 @@ import {
 } from '../services/database';
 import { Student } from '../types';
 import { StudentIdCardModal } from '../components/StudentIdCardModal';
+import { compressImageFileToDataUrl } from '../utils/image';
 
 export const NoticesAndIdCardsPage: React.FC = () => {
   const { institute, notices, students, batches } = useApp();
@@ -223,6 +224,7 @@ export const ReportsAndSettingsPage: React.FC = () => {
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
 
   // Settings Form State
+  const [instCode, setInstCode] = useState(institute?.institute_code || '');
   const [instName, setInstName] = useState(institute?.name || '');
   const [ownerName, setOwnerName] = useState(institute?.owner_name || '');
   const [phone, setPhone] = useState(institute?.phone || '');
@@ -236,6 +238,7 @@ export const ReportsAndSettingsPage: React.FC = () => {
 
   React.useEffect(() => {
     if (institute) {
+      setInstCode(institute.institute_code || institute.id.slice(0, 8).toUpperCase());
       setInstName(institute.name);
       setOwnerName(institute.owner_name);
       setPhone(institute.phone || '');
@@ -254,6 +257,7 @@ export const ReportsAndSettingsPage: React.FC = () => {
     setSettingsSavedMsg(null);
     try {
       await updateInstituteSettings(institute.id, {
+        institute_code: instCode,
         name: instName,
         owner_name: ownerName,
         phone,
@@ -263,7 +267,7 @@ export const ReportsAndSettingsPage: React.FC = () => {
         logo_url: logoUrl,
         primary_color: primaryColor,
       });
-      setSettingsSavedMsg('Institute branding & settings updated across all receipts, ID cards, and dashboards.');
+      setSettingsSavedMsg('Institute branding, Coaching Code & settings updated across all receipts, ID cards, and dashboards.');
     } finally {
       setSavingSettings(false);
     }
@@ -583,15 +587,27 @@ export const ReportsAndSettingsPage: React.FC = () => {
               </div>
             )}
             <form onSubmit={handleSaveSettings} className="mt-4 space-y-3.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Institute Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={instName}
-                  onChange={(e) => setInstName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Institute Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={instName}
+                    onChange={(e) => setInstName(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Coaching Code *</label>
+                  <input
+                    type="text"
+                    required
+                    value={instCode}
+                    onChange={(e) => setInstCode(e.target.value.toUpperCase())}
+                    className="w-full rounded-xl border border-amber-400 bg-amber-50/60 px-3 py-2 text-sm font-mono font-bold text-slate-900"
+                  />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

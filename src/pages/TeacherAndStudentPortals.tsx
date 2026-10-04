@@ -3,18 +3,23 @@ import {
   Bell,
   BookOpen,
   CalendarCheck,
+  Camera,
   FileSpreadsheet,
   GraduationCap,
   IdCard,
   IndianRupee,
   Printer,
+  Upload,
   Users,
 } from 'lucide-react';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db, handleFirestoreError } from '../lib/firebase';
 import { useApp } from '../context/AppContext';
-import { Fee } from '../types';
+import { Fee, OperationType } from '../types';
 import { FeeReceiptModal } from '../components/FeeReceiptModal';
 import { StudentIdCardModal } from '../components/StudentIdCardModal';
 import { ResultCardModal } from '../components/ResultCardModal';
+import { compressImageFileToDataUrl } from '../utils/image';
 
 export const TeacherPortalView: React.FC<{ onQuickAction: (tab: string) => void }> = ({
   onQuickAction,
@@ -227,11 +232,31 @@ export const StudentPortalView: React.FC<{ activeSubTab: string }> = ({ activeSu
   const [receiptToView, setReceiptToView] = useState<Fee | null>(null);
   const [showIdCard, setShowIdCard] = useState(false);
   const [showResultCard, setShowResultCard] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoSavedMsg, setPhotoSavedMsg] = useState<string | null>(null);
 
   const currentStudent = useMemo(
     () => students.find((s) => s.id === selectedStudentId) || students[0],
     [students, selectedStudentId]
   );
+
+  const handleStudentPortalGalleryPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentStudent) return;
+    setUploadingPhoto(true);
+    setPhotoSavedMsg(null);
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, 360, 360, 0.8);
+      await updateDoc(doc(db, 'students', currentStudent.id), {
+        photo_url: dataUrl.slice(0, 480000),
+      });
+      setPhotoSavedMsg('आपकी गैलरी फोटो सफलतापूर्वक आपके प्रोफाइल और ID Card पर अपडेट हो गई है!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `students/${currentStudent.id}`);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
 
   const studentBatch = useMemo(
     () => batches.find((b) => b.id === currentStudent?.batch_id),
@@ -282,17 +307,59 @@ export const StudentPortalView: React.FC<{ activeSubTab: string }> = ({ activeSu
         className="rounded-2xl p-5 sm:p-6 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4"
         style={{ backgroundColor: institute?.primary_color || '#0f172a' }}
       >
-        <div>
-          <span className="text-xs text-white/80 font-mono">
-            Student Portal · {currentStudent.admission_number}
-          </span>
-          <h1 className="text-xl sm:text-2xl font-bold mt-0.5">{currentStudent.full_name}</h1>
-          <p className="text-xs text-white/80 mt-0.5">
-            Batch: {studentBatch?.name || 'Assigned Batch'} ({studentBatch?.timing || ''})
-          </p>
+        <div className="flex items-center gap-4">
+          <div className="relative group shrink-0">
+            {currentStudent.photo_url ? (
+              <img
+                src={currentStudent.photo_url}
+                alt={currentStudent.full_name}
+                referrerPolicy="no-referrer"
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-amber-400 bg-white"
+              />
+            ) : (
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/15 border-2 border-white/30 flex items-center justify-center font-bold text-xl text-amber-400">
+                {currentStudent.full_name.slice(0, 2).toUpperCase()}
+              </div>
+            )}
+            <label
+              title="गैलरी से अपनी फोटो बदलें"
+              className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center shadow-md cursor-pointer hover:bg-amber-400"
+            >
+              <Camera className="w-4 h-4" />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleStudentPortalGalleryPhoto}
+                className="hidden"
+              />
+            </label>
+          </div>
+
+          <div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-white/85 font-mono">
+              <span>Student Portal · {currentStudent.admission_number}</span>
+              <span className="px-2 py-0.5 rounded-md bg-white/15 text-amber-300 font-bold">
+                Coaching Code: {institute?.institute_code || institute?.id.slice(0, 8).toUpperCase()}
+              </span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold mt-1">{currentStudent.full_name}</h1>
+            <p className="text-xs text-white/80 mt-0.5">
+              {institute?.name} · Batch: {studentBatch?.name || 'Assigned Batch'} ({studentBatch?.timing || ''})
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 rounded-xl bg-white/15 border border-white/25 px-3 py-2 text-xs font-semibold text-white hover:bg-white/25 cursor-pointer">
+            <Upload className="w-3.5 h-3.5 text-amber-300" />
+            <span>{uploadingPhoto ? 'Uploading...' : 'गैलरी से फोटो लगाएं'}</span>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleStudentPortalGalleryPhoto}
+              className="hidden"
+            />
+          </label>
           {students.length > 1 && (
             <select
               value={currentStudent.id}
@@ -316,6 +383,12 @@ export const StudentPortalView: React.FC<{ activeSubTab: string }> = ({ activeSu
           </button>
         </div>
       </div>
+
+      {photoSavedMsg && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800">
+          {photoSavedMsg}
+        </div>
+      )}
 
       {/* Overview KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

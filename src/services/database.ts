@@ -59,12 +59,23 @@ export async function logAuditAction(
   }
 }
 
+export function generateCoachingCode(name: string): string {
+  const letters = name
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase()
+    .slice(0, 4)
+    .padEnd(3, 'X');
+  const digits = Math.floor(1000 + Math.random() * 9000);
+  return `${letters}-${digits}`;
+}
+
 export async function createFirstInstituteForAdmin(params: {
   name: string;
   ownerName: string;
   phone: string;
   address: string;
   primaryColor: string;
+  instituteCode?: string;
   plan?: 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM';
 }): Promise<{ institute: Institute; profile: Profile }> {
   const user = auth.currentUser;
@@ -74,8 +85,10 @@ export async function createFirstInstituteForAdmin(params: {
   const now = new Date().toISOString();
   const today = now.split('T')[0];
   const nextYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const code = (params.instituteCode?.trim().toUpperCase() || generateCoachingCode(params.name)).slice(0, 30);
 
   const instituteData: Omit<Institute, 'id'> = {
+    institute_code: code,
     name: params.name.trim().slice(0, 120),
     logo_url: '',
     address: params.address.trim().slice(0, 300),
@@ -96,7 +109,7 @@ export async function createFirstInstituteForAdmin(params: {
     phone: params.phone.trim().slice(0, 30),
     email: (user.email || '').slice(0, 120),
     role: UserRole.INSTITUTE_ADMIN,
-    avatar_url: (user.photoURL || '').slice(0, 500),
+    avatar_url: (user.photoURL || '').slice(0, 480000),
     status: 'Active',
     created_at: now,
   };
@@ -129,7 +142,7 @@ export async function createFirstInstituteForAdmin(params: {
     handleFirestoreError(error, OperationType.CREATE, `subscriptions/${subId}`);
   }
 
-  await logAuditAction(instituteId, `Created coaching institute: ${instituteData.name}`, 'institute', instituteId, profileData.full_name);
+  await logAuditAction(instituteId, `Created coaching institute: ${instituteData.name} (Code: ${code})`, 'institute', instituteId, profileData.full_name);
 
   return {
     institute: { id: instituteId, ...instituteData },
@@ -137,13 +150,107 @@ export async function createFirstInstituteForAdmin(params: {
   };
 }
 
+export async function linkStudentToInstituteByCode(params: {
+  coachingCode: string;
+  studentPhoneOrAdmission: string;
+  photoDataUrl?: string;
+}): Promise<{ institute: Institute; student: Student; profile: Profile }> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to link student profile.');
+
+  const cleanCode = params.coachingCode.trim().toUpperCase();
+  const cleanIdent = params.studentPhoneOrAdmission.trim().toLowerCase();
+
+  // 1. Find active institute matching coachingCode (or id prefix)
+  const instSnap = await getDocs(
+    query(collection(db, 'institutes'), where('status', '==', 'Active'))
+  );
+
+  const matchedInstDoc = instSnap.docs.find((d) => {
+    const data = d.data() as Omit<Institute, 'id'>;
+    return (
+      (data.institute_code || '').toUpperCase() === cleanCode ||
+      d.id.toUpperCase() === cleanCode
+    );
+  });
+
+  if (!matchedInstDoc) {
+    throw new Error(`कोचिंग कोड "${cleanCode}" नहीं मिला। कृपया अपने कोचिंग सर से सही Coaching Code पूछें।`);
+  }
+
+  const institute: Institute = {
+    id: matchedInstDoc.id,
+    ...(matchedInstDoc.data() as Omit<Institute, 'id'>),
+  };
+
+  // 2. Find student in this institute by phone or admission_number
+  const studSnap = await getDocs(
+    query(
+      collection(db, 'students'),
+      where('institute_id', '==', institute.id),
+      where('status', '==', 'Active')
+    )
+  );
+
+  const matchedStudentDoc = studSnap.docs.find((d) => {
+    const s = d.data() as Omit<Student, 'id'>;
+    const normPhone = s.phone.replace(/\D/g, '').slice(-10);
+    const inputDigits = cleanIdent.replace(/\D/g, '').slice(-10);
+    return (
+      (normPhone && inputDigits && normPhone === inputDigits) ||
+      s.admission_number.toLowerCase() === cleanIdent ||
+      (s.email && s.email.toLowerCase() === cleanIdent)
+    );
+  });
+
+  if (!matchedStudentDoc) {
+    throw new Error(
+      `कोचिंग "${institute.name}" में मोबाइल/एडमिशन नंबर "${params.studentPhoneOrAdmission}" से कोई छात्र नहीं मिला। पहले कोचिंग एडमिन से अपना नाम और मोबाइल नंबर जुड़वाएं।`
+    );
+  }
+
+  const studentData = matchedStudentDoc.data() as Omit<Student, 'id'>;
+  const student: Student = { id: matchedStudentDoc.id, ...studentData };
+
+  const now = new Date().toISOString();
+  const finalPhoto = params.photoDataUrl ? params.photoDataUrl.slice(0, 480000) : (student.photo_url || '');
+
+  const profileData: Omit<Profile, 'id'> = {
+    auth_user_id: user.uid,
+    institute_id: institute.id,
+    full_name: student.full_name,
+    phone: student.phone,
+    email: (user.email || student.email || `${student.phone}@student.5tar.app`).slice(0, 120),
+    role: UserRole.STUDENT,
+    avatar_url: finalPhoto,
+    status: 'Active',
+    linked_student_id: student.id,
+    created_at: now,
+  };
+
+  await setDoc(doc(db, 'profiles', user.uid), profileData);
+
+  if (params.photoDataUrl) {
+    await updateDoc(doc(db, 'students', student.id), {
+      photo_url: finalPhoto,
+    });
+  }
+
+  return {
+    institute,
+    student: { ...student, photo_url: finalPhoto },
+    profile: { id: user.uid, ...profileData },
+  };
+}
+
 export async function updateInstituteSettings(
   instituteId: string,
-  updates: Partial<Pick<Institute, 'name' | 'logo_url' | 'address' | 'phone' | 'email' | 'website' | 'owner_name' | 'primary_color'>>
+  updates: Partial<Pick<Institute, 'institute_code' | 'name' | 'logo_url' | 'address' | 'phone' | 'email' | 'website' | 'owner_name' | 'primary_color'>>
 ): Promise<void> {
   const cleanUpdates: Record<string, unknown> = {};
+  if (updates.institute_code !== undefined) cleanUpdates.institute_code = updates.institute_code.trim().toUpperCase().slice(0, 30);
   if (updates.name !== undefined) cleanUpdates.name = updates.name.trim().slice(0, 120);
-  if (updates.logo_url !== undefined) cleanUpdates.logo_url = updates.logo_url.trim().slice(0, 500);
+  if (updates.logo_url !== undefined) cleanUpdates.logo_url = updates.logo_url.trim().slice(0, 480000);
   if (updates.address !== undefined) cleanUpdates.address = updates.address.trim().slice(0, 300);
   if (updates.phone !== undefined) cleanUpdates.phone = updates.phone.trim().slice(0, 30);
   if (updates.email !== undefined) cleanUpdates.email = updates.email.trim().slice(0, 120);
@@ -288,7 +395,7 @@ export async function createStudentRecord(
     date_of_birth: (data.date_of_birth || '').slice(0, 20),
     gender: data.gender || 'Male',
     address: (data.address || '').trim().slice(0, 300),
-    photo_url: (data.photo_url || '').trim().slice(0, 500),
+    photo_url: (data.photo_url || '').trim().slice(0, 480000),
     admission_date: (data.admission_date || now.split('T')[0]).slice(0, 20),
     batch_id: data.batch_id.slice(0, 128),
     status: data.status || 'Active',
@@ -318,7 +425,7 @@ export async function updateStudentRecord(
   if (updates.date_of_birth !== undefined) clean.date_of_birth = updates.date_of_birth.slice(0, 20);
   if (updates.gender !== undefined) clean.gender = updates.gender;
   if (updates.address !== undefined) clean.address = updates.address.trim().slice(0, 300);
-  if (updates.photo_url !== undefined) clean.photo_url = updates.photo_url.trim().slice(0, 500);
+  if (updates.photo_url !== undefined) clean.photo_url = updates.photo_url.trim().slice(0, 480000);
   if (updates.admission_date !== undefined) clean.admission_date = updates.admission_date.slice(0, 20);
   if (updates.batch_id !== undefined) clean.batch_id = updates.batch_id.slice(0, 128);
   if (updates.status !== undefined) clean.status = updates.status;

@@ -106,7 +106,9 @@ export const AppShell: React.FC<AppShellProps> = ({ activeTab, setActiveTab, chi
           )}
           <div className="min-w-0">
             <p className="text-sm font-bold text-white truncate">{institute?.name || '5tar Coaching'}</p>
-            <p className="text-[11px] text-slate-400 truncate">5tar Coaching Manager</p>
+            <p className="text-[11px] font-mono text-amber-400 truncate">
+              Code: {institute?.institute_code || institute?.id.slice(0, 8).toUpperCase()}
+            </p>
           </div>
         </div>
 
