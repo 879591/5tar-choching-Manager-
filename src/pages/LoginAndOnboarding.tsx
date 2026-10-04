@@ -20,13 +20,26 @@ export const LoginAndOnboardingView: React.FC = () => {
   const [loadSampleData, setLoadSampleData] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  const [signingIn, setSigningIn] = useState(false);
+
   const handleGoogleLogin = async () => {
+    if (signingIn) return;
     setErrorMsg(null);
+    setAuthNotice(null);
+    setSigningIn(true);
     try {
       await signInWithGoogle();
-    } catch (err) {
-      setErrorMsg('Login नहीं हो सका। कृपया Google Sign-In दोबारा कोशिश करें।');
-      console.error(err);
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code || '';
+      if (code === 'auth/popup-blocked') {
+        setAuthNotice(
+          'ब्राउज़र ने लॉगिन पॉप-अप रोक दिया है। कृपया ऊपर पॉप-अप अनुमति दें या ऐप को नए टैब (Open in new tab) में खोलकर लॉगिन करें।'
+        );
+      } else {
+        setErrorMsg('Google साइन-इन पूरा नहीं हो सका। कृपया दोबारा कोशिश करें या नए टैब में खोलें।');
+      }
+    } finally {
+      setSigningIn(false);
     }
   };
 

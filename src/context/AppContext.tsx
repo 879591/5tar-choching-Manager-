@@ -364,7 +364,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [user, isSuperAdminUser]);
 
   const signInWithGoogle = async () => {
-    await signInWithPopup(auth, googleAuthProvider);
+    try {
+      await signInWithPopup(auth, googleAuthProvider);
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code || '';
+      if (
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request'
+      ) {
+        return;
+      }
+      throw err;
+    }
   };
 
   const logout = async () => {
