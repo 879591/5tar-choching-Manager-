@@ -8,7 +8,15 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { auth, db, googleAuthProvider, handleFirestoreError } from '../lib/firebase';
+import {
+  auth,
+  CustomAuthSessionUser,
+  db,
+  getStoredCustomAuthUser,
+  googleAuthProvider,
+  handleFirestoreError,
+  setStoredCustomAuthUser,
+} from '../lib/firebase';
 import {
   Attendance,
   AuditLog,
@@ -28,7 +36,7 @@ import {
 } from '../types';
 
 interface AppContextType {
-  user: User | null;
+  user: (User | CustomAuthSessionUser) | null;
   profile: Profile | null;
   institute: Institute | null;
   activeRole: UserRole;
@@ -53,6 +61,7 @@ interface AppContextType {
   allInstitutes: Institute[];
   allSubscriptions: Subscription[];
   signInWithGoogle: () => Promise<void>;
+  setCustomSessionUser: (sessionUser: CustomAuthSessionUser | null) => void;
   logout: () => Promise<void>;
   switchInstitute: (instituteId: string) => Promise<void>;
   isSuperAdminUser: boolean;
@@ -61,7 +70,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<(User | CustomAuthSessionUser) | null>(() => getStoredCustomAuthUser());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [institute, setInstitute] = useState<Institute | null>(null);
   const [activeRole, setActiveRole] = useState<UserRole>(UserRole.INSTITUTE_ADMIN);
@@ -88,17 +97,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     user?.email === 'miss359010@gmail.com' || profile?.role === UserRole.SUPER_ADMIN
   );
 
-  // 1. Auth State Listener
+  // 1. Auth State Listener (Supports both Firebase Auth and Custom OTP Session)
   useEffect(() => {
+    const syncAuth = () => {
+      if (auth.currentUser) {
+        setUser(auth.currentUser);
+      } else {
+        const customUser = getStoredCustomAuthUser();
+        setUser(customUser);
+        if (!customUser) {
+          setProfile(null);
+          setInstitute(null);
+          setAuthLoading(false);
+        }
+      }
+    };
+
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      if (!firebaseUser) {
-        setProfile(null);
-        setInstitute(null);
-        setAuthLoading(false);
+      if (firebaseUser) {
+        setUser(firebaseUser);
+      } else {
+        const customUser = getStoredCustomAuthUser();
+        setUser(customUser);
+        if (!customUser) {
+          setProfile(null);
+          setInstitute(null);
+          setAuthLoading(false);
+        }
       }
     });
-    return () => unsub();
+
+    window.addEventListener('5tar-auth-changed', syncAuth);
+    return () => {
+      unsub();
+      window.removeEventListener('5tar-auth-changed', syncAuth);
+    };
   }, []);
 
   // 2. Profile Listener
@@ -384,8 +417,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const setCustomSessionUser = (sessionUser: CustomAuthSessionUser | null) => {
+    setStoredCustomAuthUser(sessionUser);
+    setUser(sessionUser);
+  };
+
   const logout = async () => {
-    await signOut(auth);
+    setStoredCustomAuthUser(null);
+    setUser(null);
+    setProfile(null);
+    setInstitute(null);
+    try {
+      await signOut(auth);
+    } catch {
+      // ignore if not signed into firebase auth
+    }
   };
 
   const switchInstitute = async (targetInstituteId: string) => {
@@ -427,6 +473,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         allInstitutes,
         allSubscriptions,
         signInWithGoogle,
+        setCustomSessionUser,
         logout,
         switchInstitute,
         isSuperAdminUser,

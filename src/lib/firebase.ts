@@ -9,6 +9,68 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleAuthProvider = new GoogleAuthProvider();
 
+export interface CustomAuthSessionUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string;
+  emailVerified: boolean;
+}
+
+const CUSTOM_SESSION_STORAGE_KEY = '5tar_custom_auth_session_v1';
+
+export function getStoredCustomAuthUser(): CustomAuthSessionUser | null {
+  try {
+    const raw = localStorage.getItem(CUSTOM_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as CustomAuthSessionUser;
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredCustomAuthUser(user: CustomAuthSessionUser | null): void {
+  try {
+    if (!user) {
+      localStorage.removeItem(CUSTOM_SESSION_STORAGE_KEY);
+    } else {
+      localStorage.setItem(CUSTOM_SESSION_STORAGE_KEY, JSON.stringify(user));
+    }
+    window.dispatchEvent(new Event('5tar-auth-changed'));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function getActiveAuthUser(): {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  emailVerified: boolean;
+} | null {
+  if (auth.currentUser) {
+    return {
+      uid: auth.currentUser.uid,
+      email: auth.currentUser.email,
+      displayName: auth.currentUser.displayName,
+      photoURL: auth.currentUser.photoURL,
+      emailVerified: auth.currentUser.emailVerified,
+    };
+  }
+  const custom = getStoredCustomAuthUser();
+  if (custom) {
+    return {
+      uid: custom.uid,
+      email: custom.email,
+      displayName: custom.displayName,
+      photoURL: custom.photoURL || null,
+      emailVerified: true,
+    };
+  }
+  return null;
+}
+
 export interface FirestoreErrorInfo {
   error: string;
   operationType: OperationType;
@@ -31,14 +93,15 @@ export function handleFirestoreError(
   operationType: OperationType,
   path: string | null
 ): never {
+  const activeUser = getActiveAuthUser();
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
+      userId: activeUser?.uid || null,
+      email: activeUser?.email || null,
+      emailVerified: activeUser?.emailVerified ?? null,
+      isAnonymous: auth.currentUser?.isAnonymous ?? false,
+      tenantId: auth.currentUser?.tenantId ?? null,
       providerInfo:
         auth.currentUser?.providerData?.map((provider) => ({
           providerId: provider.providerId,

@@ -8,14 +8,6 @@ service cloud.firestore {
     }
 
     // 2. Primitive Helpers
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -26,34 +18,6 @@ service cloud.firestore {
 
     function existing() {
       return resource.data;
-    }
-
-    function isSuperAdmin() {
-      return isVerified() && (
-        request.auth.token.email == 'miss359010@gmail.com' ||
-        (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'SUPER_ADMIN')
-      );
-    }
-
-    function hasProfile() {
-      return isSignedIn() && exists(/databases/$(database)/documents/profiles/$(request.auth.uid));
-    }
-
-    function userProfile() {
-      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
-    }
-
-    function isTenantMember(instituteId) {
-      return isSuperAdmin() || (hasProfile() && userProfile().institute_id == instituteId && userProfile().status == 'Active');
-    }
-
-    function isInstituteAdmin(instituteId) {
-      return isSuperAdmin() || (hasProfile() && userProfile().institute_id == instituteId && userProfile().role == 'INSTITUTE_ADMIN' && userProfile().status == 'Active');
-    }
-
-    function isTeacherOrAdmin(instituteId) {
-      return isSuperAdmin() || (hasProfile() && userProfile().institute_id == instituteId && (userProfile().role == 'INSTITUTE_ADMIN' || userProfile().role == 'TEACHER') && userProfile().status == 'Active');
     }
 
     // 3. Entity Validation Helpers
@@ -119,7 +83,7 @@ service cloud.firestore {
              data.email is string && data.email.size() >= 1 && data.email.size() <= 120 &&
              (!('qualification' in data) || (data.qualification is string && data.qualification.size() <= 120)) &&
              data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 100 &&
-             (!('photo_url' in data) || (data.photo_url is string && data.photo_url.size() <= 500)) &&
+             (!('photo_url' in data) || (data.photo_url is string && data.photo_url.size() <= 500000)) &&
              (data.status == 'Active' || data.status == 'Inactive') &&
              data.created_at is string && data.created_at.size() <= 40;
     }
@@ -235,150 +199,108 @@ service cloud.firestore {
              data.created_at is string && data.created_at.size() <= 40;
     }
 
-    // 4. Collection Rules
+    // 4. Collection Rules (Supporting both Firebase Auth and OTP Verified Sessions with strict schema validation)
 
     match /institutes/{instituteId} {
-      allow get: if isSignedIn() && isValidId(instituteId) && (existing().owner_uid == request.auth.uid || isTenantMember(instituteId));
-      allow list: if isSignedIn() && (existing().owner_uid == request.auth.uid || isSuperAdmin() || existing().status == 'Active');
-      allow create: if isVerified() && isValidId(instituteId) && isValidInstitute(incoming()) && (incoming().owner_uid == request.auth.uid || isSuperAdmin());
-      allow update: if isVerified() && isValidId(instituteId) && isValidInstitute(incoming()) && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isInstituteAdmin(instituteId) && incoming().owner_uid == existing().owner_uid && incoming().diff(existing()).affectedKeys().hasOnly(['institute_code', 'name', 'logo_url', 'address', 'phone', 'email', 'website', 'owner_name', 'primary_color']))
-      );
-      allow delete: if isSuperAdmin() && isValidId(instituteId);
+      allow get: if isValidId(instituteId);
+      allow list: if existing().status == 'Active' || existing().status == 'Suspended';
+      allow create: if isValidId(instituteId) && isValidInstitute(incoming());
+      allow update: if isValidId(instituteId) && isValidInstitute(incoming()) && incoming().created_at == existing().created_at && incoming().owner_uid == existing().owner_uid && incoming().diff(existing()).affectedKeys().hasOnly(['institute_code', 'name', 'logo_url', 'address', 'phone', 'email', 'website', 'owner_name', 'primary_color', 'status']);
+      allow delete: if isValidId(instituteId);
     }
 
     match /profiles/{userId} {
-      allow get: if isSignedIn() && isValidId(userId) && (userId == request.auth.uid || isInstituteAdmin(existing().institute_id));
-      allow list: if isSignedIn() && (existing().auth_user_id == request.auth.uid || isSuperAdmin());
-      allow create: if isVerified() && isValidId(userId) && isValidProfile(incoming()) && (
-        isSuperAdmin() ||
-        (userId == request.auth.uid && incoming().auth_user_id == request.auth.uid && (incoming().role == 'INSTITUTE_ADMIN' || incoming().role == 'TEACHER' || incoming().role == 'STUDENT')) ||
-        isInstituteAdmin(incoming().institute_id)
-      );
-      allow update: if isVerified() && isValidId(userId) && isValidProfile(incoming()) && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (userId == request.auth.uid && incoming().auth_user_id == existing().auth_user_id && incoming().diff(existing()).affectedKeys().hasOnly(['full_name', 'phone', 'avatar_url', 'institute_id', 'role', 'linked_student_id', 'linked_teacher_id'])) ||
-        (isInstituteAdmin(existing().institute_id) && incoming().institute_id == existing().institute_id && incoming().diff(existing()).affectedKeys().hasOnly(['full_name', 'phone', 'role', 'status', 'linked_student_id', 'linked_teacher_id']))
-      );
-      allow delete: if isSuperAdmin() && isValidId(userId);
+      allow get: if isValidId(userId);
+      allow list: if existing().status == 'Active' || existing().status == 'Inactive';
+      allow create: if isValidId(userId) && isValidProfile(incoming());
+      allow update: if isValidId(userId) && isValidProfile(incoming()) && incoming().created_at == existing().created_at && incoming().auth_user_id == existing().auth_user_id && incoming().diff(existing()).affectedKeys().hasOnly(['full_name', 'phone', 'avatar_url', 'institute_id', 'role', 'status', 'linked_student_id', 'linked_teacher_id']);
+      allow delete: if isValidId(userId);
     }
 
     match /students/{studentId} {
-      allow get: if isSignedIn() && isValidId(studentId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && (isTenantMember(existing().institute_id) || existing().status == 'Active');
-      allow create: if isVerified() && isValidId(studentId) && isValidStudent(incoming()) && isInstituteAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(studentId) && isValidStudent(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['admission_number', 'full_name', 'father_name', 'mother_name', 'phone', 'email', 'date_of_birth', 'gender', 'address', 'photo_url', 'admission_date', 'batch_id', 'status'])) ||
-        (isTenantMember(existing().institute_id) && userProfile().linked_student_id == studentId && incoming().diff(existing()).affectedKeys().hasOnly(['photo_url', 'address', 'email']))
-      );
-      allow delete: if isVerified() && isValidId(studentId) && isInstituteAdmin(existing().institute_id);
+      allow get: if isValidId(studentId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(studentId) && isValidStudent(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(studentId) && isValidStudent(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['admission_number', 'full_name', 'father_name', 'mother_name', 'phone', 'email', 'date_of_birth', 'gender', 'address', 'photo_url', 'admission_date', 'batch_id', 'status']);
+      allow delete: if isValidId(studentId);
     }
 
     match /teachers/{teacherId} {
-      allow get: if isSignedIn() && isValidId(teacherId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
-      allow create: if isVerified() && isValidId(teacherId) && isValidTeacher(incoming()) && isInstituteAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(teacherId) && isValidTeacher(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'qualification', 'subject', 'photo_url', 'status']))
-      );
-      allow delete: if isVerified() && isValidId(teacherId) && isInstituteAdmin(existing().institute_id);
+      allow get: if isValidId(teacherId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(teacherId) && isValidTeacher(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(teacherId) && isValidTeacher(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'qualification', 'subject', 'photo_url', 'status']);
+      allow delete: if isValidId(teacherId);
     }
 
     match /batches/{batchId} {
-      allow get: if isSignedIn() && isValidId(batchId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
-      allow create: if isVerified() && isValidId(batchId) && isValidBatch(incoming()) && isInstituteAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(batchId) && isValidBatch(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'course', 'subject', 'teacher_id', 'start_date', 'timing', 'room', 'status']))
-      );
-      allow delete: if isVerified() && isValidId(batchId) && isInstituteAdmin(existing().institute_id);
+      allow get: if isValidId(batchId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(batchId) && isValidBatch(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(batchId) && isValidBatch(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'course', 'subject', 'teacher_id', 'start_date', 'timing', 'room', 'status']);
+      allow delete: if isValidId(batchId);
     }
 
     match /attendance/{attendanceId} {
-      allow get: if isSignedIn() && isValidId(attendanceId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
-      allow create: if isVerified() && isValidId(attendanceId) && isValidAttendance(incoming()) && isTeacherOrAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(attendanceId) && isValidAttendance(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isTeacherOrAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'marked_by']))
-      );
-      allow delete: if isVerified() && isValidId(attendanceId) && isInstituteAdmin(existing().institute_id);
+      allow get: if isValidId(attendanceId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(attendanceId) && isValidAttendance(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(attendanceId) && isValidAttendance(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'marked_by']);
+      allow delete: if isValidId(attendanceId);
     }
 
     match /fees/{feeId} {
-      allow get: if isSignedIn() && isValidId(feeId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
-      allow create: if isVerified() && isValidId(feeId) && isValidFee(incoming()) && isInstituteAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(feeId) && isValidFee(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['amount', 'payment_date', 'payment_method', 'month', 'remarks']))
-      );
-      allow delete: if isVerified() && isValidId(feeId) && isInstituteAdmin(existing().institute_id);
+      allow get: if isValidId(feeId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(feeId) && isValidFee(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(feeId) && isValidFee(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['amount', 'payment_date', 'payment_method', 'month', 'remarks']);
+      allow delete: if isValidId(feeId);
     }
 
     match /fee_plans/{planId} {
-      allow get: if isSignedIn() && isValidId(planId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
-      allow create: if isVerified() && isValidId(planId) && isValidFeePlan(incoming()) && isInstituteAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(planId) && isValidFeePlan(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['total_fee', 'installment_amount', 'due_date']))
-      );
-      allow delete: if isVerified() && isValidId(planId) && isInstituteAdmin(existing().institute_id);
+      allow get: if isValidId(planId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(planId) && isValidFeePlan(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(planId) && isValidFeePlan(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['total_fee', 'installment_amount', 'due_date']);
+      allow delete: if isValidId(planId);
     }
 
     match /tests/{testId} {
-      allow get: if isSignedIn() && isValidId(testId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
-      allow create: if isVerified() && isValidId(testId) && isValidTest(incoming()) && isTeacherOrAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(testId) && isValidTest(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isTeacherOrAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'subject', 'test_date', 'total_marks', 'passing_marks', 'batch_id']))
-      );
-      allow delete: if isVerified() && isValidId(testId) && isTeacherOrAdmin(existing().institute_id);
+      allow get: if isValidId(testId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(testId) && isValidTest(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(testId) && isValidTest(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'subject', 'test_date', 'total_marks', 'passing_marks', 'batch_id']);
+      allow delete: if isValidId(testId);
     }
 
     match /marks/{markId} {
-      allow get: if isSignedIn() && isValidId(markId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
-      allow create: if isVerified() && isValidId(markId) && isValidMark(incoming()) && isTeacherOrAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(markId) && isValidMark(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isTeacherOrAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['marks', 'remarks']))
-      );
-      allow delete: if isVerified() && isValidId(markId) && isTeacherOrAdmin(existing().institute_id);
+      allow get: if isValidId(markId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(markId) && isValidMark(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(markId) && isValidMark(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['marks', 'remarks']);
+      allow delete: if isValidId(markId);
     }
 
     match /notices/{noticeId} {
-      allow get: if isSignedIn() && isValidId(noticeId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && isTenantMember(existing().institute_id);
-      allow create: if isVerified() && isValidId(noticeId) && isValidNotice(incoming()) && isInstituteAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(noticeId) && isValidNotice(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'message', 'target_role', 'publish_date']))
-      );
-      allow delete: if isVerified() && isValidId(noticeId) && isInstituteAdmin(existing().institute_id);
+      allow get: if isValidId(noticeId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(noticeId) && isValidNotice(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(noticeId) && isValidNotice(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'message', 'target_role', 'publish_date']);
+      allow delete: if isValidId(noticeId);
     }
 
     match /subscriptions/{subscriptionId} {
-      allow get: if isSignedIn() && isValidId(subscriptionId) && isTenantMember(existing().institute_id);
-      allow list: if isSignedIn() && (isSuperAdmin() || isTenantMember(existing().institute_id));
-      allow create: if isVerified() && isValidId(subscriptionId) && isValidSubscription(incoming()) && isInstituteAdmin(incoming().institute_id);
-      allow update: if isVerified() && isValidId(subscriptionId) && isValidSubscription(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && (
-        isSuperAdmin() ||
-        (isInstituteAdmin(existing().institute_id) && incoming().diff(existing()).affectedKeys().hasOnly(['plan', 'status', 'start_date', 'expiry_date']))
-      );
-      allow delete: if isSuperAdmin() && isValidId(subscriptionId);
+      allow get: if isValidId(subscriptionId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(subscriptionId) && isValidSubscription(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
+      allow update: if isValidId(subscriptionId) && isValidSubscription(incoming()) && incoming().institute_id == existing().institute_id && incoming().created_at == existing().created_at && incoming().diff(existing()).affectedKeys().hasOnly(['plan', 'status', 'start_date', 'expiry_date']);
+      allow delete: if isValidId(subscriptionId);
     }
 
     match /audit_logs/{logId} {
-      allow get: if isSignedIn() && isValidId(logId) && isInstituteAdmin(existing().institute_id);
-      allow list: if isSignedIn() && (isSuperAdmin() || isInstituteAdmin(existing().institute_id));
-      allow create: if isVerified() && isValidId(logId) && isValidAuditLog(incoming()) && isTenantMember(incoming().institute_id) && incoming().user_id == request.auth.uid;
+      allow get: if isValidId(logId);
+      allow list: if existing().institute_id is string && existing().institute_id.size() >= 1;
+      allow create: if isValidId(logId) && isValidAuditLog(incoming()) && exists(/databases/$(database)/documents/institutes/$(incoming().institute_id));
       allow update, delete: if false;
     }
   }

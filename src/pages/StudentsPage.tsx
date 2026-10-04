@@ -65,6 +65,7 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
   const [studentInitialPassword, setStudentInitialPassword] = useState('');
   const [studentOtpCode, setStudentOtpCode] = useState('');
   const [studentOtpPreview, setStudentOtpPreview] = useState<string | null>(null);
+  const [studentWhatsappUrl, setStudentWhatsappUrl] = useState<string | null>(null);
   const [sendingOtp, setSendingOtp] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -91,12 +92,18 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
       const res = await fetch('/api/auth/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: phone.trim(), purpose: 'ADMIN_ADD_STUDENT' }),
+        body: JSON.stringify({
+          identifier: phone.trim(),
+          phone: phone.trim(),
+          email: email.trim() || undefined,
+          purpose: 'Student Admission Verification',
+        }),
       });
       const data = await res.json();
       if (res.ok && data.otp) {
         setStudentOtpPreview(data.otp);
         setStudentOtpCode(data.otp);
+        setStudentWhatsappUrl(data.whatsappOtpUrl || null);
       }
     } finally {
       setSendingOtp(false);
@@ -730,31 +737,45 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onNavigateToFeeForSt
                 </div>
 
                 {studentOtpPreview && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-amber-950 mb-1">
-                        Generated Student OTP (शेयर करें): <span className="font-mono font-bold underline">{studentOtpPreview}</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={studentOtpCode}
-                        onChange={(e) => setStudentOtpCode(e.target.value)}
-                        placeholder="6-digit OTP"
-                        className="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900"
-                      />
+                  <div className="space-y-2.5 pt-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-amber-950 mb-1">
+                          Generated Student OTP: <span className="font-mono font-bold underline">{studentOtpPreview}</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={studentOtpCode}
+                          onChange={(e) => setStudentOtpCode(e.target.value)}
+                          placeholder="6-digit OTP"
+                          className="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-amber-950 mb-1">
+                          Set Student Password (Optional, min 6 chars)
+                        </label>
+                        <input
+                          type="text"
+                          value={studentInitialPassword}
+                          onChange={(e) => setStudentInitialPassword(e.target.value)}
+                          placeholder="e.g., student123"
+                          className="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-900"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-amber-950 mb-1">
-                        Set Student Password (Optional, min 6 chars)
-                      </label>
-                      <input
-                        type="text"
-                        value={studentInitialPassword}
-                        onChange={(e) => setStudentInitialPassword(e.target.value)}
-                        placeholder="e.g., student123"
-                        className="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-900"
-                      />
-                    </div>
+                    {studentWhatsappUrl && (
+                      <div className="flex items-center justify-end">
+                        <a
+                          href={studentWhatsappUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700"
+                        >
+                          <span>Send OTP to Student on WhatsApp ({phone})</span>
+                        </a>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

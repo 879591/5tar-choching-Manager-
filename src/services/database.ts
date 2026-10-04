@@ -10,7 +10,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { auth, db, handleFirestoreError } from '../lib/firebase';
+import { auth, db, getActiveAuthUser, handleFirestoreError } from '../lib/firebase';
 import {
   Attendance,
   AuditLog,
@@ -41,12 +41,13 @@ export async function logAuditAction(
   recordId: string,
   userName?: string
 ): Promise<void> {
-  if (!auth.currentUser) return;
+  const currentUser = getActiveAuthUser();
+  if (!currentUser) return;
   const logId = makeId('log');
   const logData: Omit<AuditLog, 'id'> = {
     institute_id: instituteId.slice(0, 128),
-    user_id: auth.currentUser.uid,
-    user_name: (userName || auth.currentUser.displayName || auth.currentUser.email || 'User').slice(0, 100),
+    user_id: currentUser.uid,
+    user_name: (userName || currentUser.displayName || currentUser.email || 'User').slice(0, 100),
     action: action.slice(0, 150),
     record_type: recordType.slice(0, 50),
     record_id: recordId.slice(0, 128),
@@ -78,7 +79,7 @@ export async function createFirstInstituteForAdmin(params: {
   instituteCode?: string;
   plan?: 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM';
 }): Promise<{ institute: Institute; profile: Profile }> {
-  const user = auth.currentUser;
+  const user = getActiveAuthUser();
   if (!user) throw new Error('Must be signed in to create an institute.');
 
   const instituteId = makeId('inst');
@@ -155,7 +156,7 @@ export async function linkStudentToInstituteByCode(params: {
   studentPhoneOrAdmission: string;
   photoDataUrl?: string;
 }): Promise<{ institute: Institute; student: Student; profile: Profile }> {
-  const user = auth.currentUser;
+  const user = getActiveAuthUser();
   if (!user) throw new Error('Must be signed in to link student profile.');
 
   const cleanCode = params.coachingCode.trim().toUpperCase();

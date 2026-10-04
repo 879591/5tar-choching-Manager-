@@ -28,7 +28,7 @@ import { compressImageFileToDataUrl, identifierToAuthEmail } from '../utils/imag
 type AuthPortalTab = 'LOGIN' | 'REGISTER_COACHING' | 'REGISTER_STUDENT';
 
 export const LoginAndOnboardingView: React.FC = () => {
-  const { user, signInWithGoogle, logout } = useApp();
+  const { user, signInWithGoogle, setCustomSessionUser, logout } = useApp();
 
   const [portalTab, setPortalTab] = useState<AuthPortalTab>('LOGIN');
   const [authNotice, setAuthNotice] = useState<string | null>(null);
@@ -54,15 +54,18 @@ export const LoginAndOnboardingView: React.FC = () => {
   const [coachingOtpSent, setCoachingOtpSent] = useState(false);
   const [coachingOtpCode, setCoachingOtpCode] = useState('');
   const [coachingServerOtpPreview, setCoachingServerOtpPreview] = useState<string | null>(null);
+  const [coachingWhatsappUrl, setCoachingWhatsappUrl] = useState<string | null>(null);
 
   // --- Tab 3: Student Registration with Coaching Code + OTP + Password + Gallery Photo ---
   const [stuCoachingCode, setStuCoachingCode] = useState('');
   const [stuPhoneOrAdm, setStuPhoneOrAdm] = useState('');
+  const [stuEmailOptional, setStuEmailOptional] = useState('');
   const [stuPassword, setStuPassword] = useState('');
   const [stuPhotoDataUrl, setStuPhotoDataUrl] = useState<string>('');
   const [studentOtpSent, setStudentOtpSent] = useState(false);
   const [studentOtpCode, setStudentOtpCode] = useState('');
   const [studentServerOtpPreview, setStudentServerOtpPreview] = useState<string | null>(null);
+  const [studentWhatsappUrl, setStudentWhatsappUrl] = useState<string | null>(null);
 
   // Onboarding Mode (if user logged in via Google and needs to either Setup Coaching or Join as Student)
   const [onboardingMode, setOnboardingMode] = useState<'CREATE_COACHING' | 'JOIN_AS_STUDENT'>('CREATE_COACHING');
@@ -73,21 +76,30 @@ export const LoginAndOnboardingView: React.FC = () => {
     setAuthNotice(null);
   };
 
-  // Helper: Send 6-Digit OTP via Server
-  const requestOtpFromServer = async (identifier: string, purpose: string): Promise<string> => {
+  // Helper: Send 6-Digit OTP via Server (Real Gmail SMTP + Fast2SMS / Twilio + WhatsApp Link)
+  const requestOtpFromServer = async (params: {
+    identifier: string;
+    email?: string;
+    phone?: string;
+    purpose: string;
+  }): Promise<{ otp: string; message: string; whatsappOtpUrl: string | null }> => {
     const res = await fetch('/api/auth/send-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, purpose }),
+      body: JSON.stringify(params),
     });
     const data = await res.json();
     if (!res.ok) {
       throw new Error(data.error || 'OTP भेजने में समस्या आई।');
     }
-    return data.otp as string;
+    return {
+      otp: data.otp as string,
+      message: data.message as string,
+      whatsappOtpUrl: (data.whatsappOtpUrl as string) || null,
+    };
   };
 
-  // Helper: Verify OTP & Create/Update Firebase User then Sign In
+  // Helper: Verify OTP & Create/Update Account then Activate Session
   const verifyOtpAndSignIn = async (params: {
     identifier: string;
     otp: string;
@@ -105,17 +117,12 @@ export const LoginAndOnboardingView: React.FC = () => {
       throw new Error(data.error || 'OTP सत्यापन विफल रहा।');
     }
 
-    try {
-      await signInWithEmailAndPassword(auth, params.authEmail.trim().toLowerCase(), params.password);
-    } catch {
-      if (data.customToken) {
-        await signInWithCustomToken(auth, data.customToken);
-      } else {
-        throw new Error(
-          'खाता बन गया है, कृपया पासवर्ड लॉगिन करें (यदि आवश्यक हो तो Firebase Console में Email/Password provider ऑन करें)।'
-        );
-      }
-    }
+    setCustomSessionUser({
+      uid: data.uid as string,
+      email: data.email as string,
+      displayName: (data.displayName as string) || params.displayName,
+      emailVerified: true,
+    });
   };
 
   // Handle Gallery Photo Selection for Student
@@ -153,10 +160,33 @@ export const LoginAndOnboardingView: React.FC = () => {
 
     setSigningIn(true);
     try {
-      await signInWithEmailAndPassword(auth, targetEmail, loginPassword);
-    } catch {
+      const res = await fetch('/api/auth/login-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authEmail: targetEmail,
+          identifier: loginEmailOrPhone.trim(),
+          password: loginPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(
+          data.error ||
+            'लॉगिन नहीं हो सका। यदि आप नए हैं तो पहले "नई कोचिंग (OTP)" या "छात्र जुड़ें (OTP)" टैब से रजिस्टर करें।'
+        );
+      }
+      setCustomSessionUser({
+        uid: data.uid as string,
+        email: data.email as string,
+        displayName: (data.displayName as string) || loginEmailOrPhone.trim(),
+        emailVerified: true,
+      });
+    } catch (err: unknown) {
       setErrorMsg(
-        'लॉगिन नहीं हो सका। यदि आप नए हैं तो पहले "New Coaching OTP Register" या "Student OTP Register" टैब से OTP द्वारा अपना पासवर्ड बनाएं।'
+        err instanceof Error
+          ? err.message
+          : 'लॉगिन नहीं हो सका। यदि आप नए हैं तो पहले OTP द्वारा अपना पासवर्ड बनाएं।'
       );
     } finally {
       setSigningIn(false);
@@ -178,12 +208,16 @@ export const LoginAndOnboardingView: React.FC = () => {
     try {
       const generatedCode = instCustomCode.trim() || generateCoachingCode(instName);
       setInstCustomCode(generatedCode);
-      const otp = await requestOtpFromServer(ownerEmail.trim(), 'COACHING_REGISTER');
+      const { otp, message, whatsappOtpUrl } = await requestOtpFromServer({
+        identifier: ownerEmail.trim(),
+        email: ownerEmail.trim(),
+        phone: phone.trim(),
+        purpose: 'Coaching Registration',
+      });
       setCoachingOtpSent(true);
       setCoachingServerOtpPreview(otp);
-      setAuthNotice(
-        `आपके पर्सनल Gmail (${ownerEmail.trim()}) और मोबाइल (${phone.trim()}) के लिए 6-अंकीय OTP भेज दिया गया है।`
-      );
+      setCoachingWhatsappUrl(whatsappOtpUrl);
+      setAuthNotice(message);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'OTP भेजने में त्रुटि हुई।');
     } finally {
@@ -242,12 +276,16 @@ export const LoginAndOnboardingView: React.FC = () => {
     }
     setSubmitting(true);
     try {
-      const otp = await requestOtpFromServer(stuPhoneOrAdm.trim(), 'STUDENT_REGISTER');
+      const { otp, message, whatsappOtpUrl } = await requestOtpFromServer({
+        identifier: stuPhoneOrAdm.trim(),
+        email: stuEmailOptional.trim() || (stuPhoneOrAdm.includes('@') ? stuPhoneOrAdm.trim() : undefined),
+        phone: stuPhoneOrAdm.trim(),
+        purpose: 'Student Registration',
+      });
       setStudentOtpSent(true);
       setStudentServerOtpPreview(otp);
-      setAuthNotice(
-        `छात्र सत्यापन के लिए मोबाइल/ईमेल (${stuPhoneOrAdm.trim()}) पर 6-अंकीय OTP भेज दिया गया है।`
-      );
+      setStudentWhatsappUrl(whatsappOtpUrl);
+      setAuthNotice(message);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'OTP भेजने में त्रुटि हुई।');
     } finally {
@@ -1062,16 +1100,28 @@ export const LoginAndOnboardingView: React.FC = () => {
                     </button>
                   ) : (
                     <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 space-y-3">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
                           <KeyRound className="w-4 h-4 text-amber-700" />
-                          <span>Enter 6-Digit Gmail OTP</span>
+                          <span>Enter 6-Digit Gmail / Mobile OTP</span>
                         </span>
-                        {coachingServerOtpPreview && (
-                          <span className="text-xs font-mono font-bold bg-slate-900 text-amber-400 px-2.5 py-1 rounded-md">
-                            Instant OTP: {coachingServerOtpPreview}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {coachingWhatsappUrl && (
+                            <a
+                              href={coachingWhatsappUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] font-bold bg-emerald-600 text-white px-2.5 py-1 rounded-md hover:bg-emerald-700"
+                            >
+                              Get OTP on WhatsApp
+                            </a>
+                          )}
+                          {coachingServerOtpPreview && (
+                            <span className="text-xs font-mono font-bold bg-slate-900 text-amber-400 px-2.5 py-1 rounded-md">
+                              OTP: {coachingServerOtpPreview}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <input
                         type="text"
@@ -1153,18 +1203,32 @@ export const LoginAndOnboardingView: React.FC = () => {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Create Your Password (अपना खुद का पासवर्ड बनाएं) *
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="कम से कम 6 अक्षरों का पासवर्ड"
-                      value={stuPassword}
-                      onChange={(e) => setStuPassword(e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Student Gmail (OTP पाने के लिए - वैकल्पिक)
+                      </label>
+                      <input
+                        type="email"
+                        placeholder="student@gmail.com"
+                        value={stuEmailOptional}
+                        onChange={(e) => setStuEmailOptional(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Create Your Password (अपना पासवर्ड बनाएं) *
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="कम से कम 6 अक्षरों का पासवर्ड"
+                        value={stuPassword}
+                        onChange={(e) => setStuPassword(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                      />
+                    </div>
                   </div>
 
                   {/* Mobile Gallery Photo Picker */}
@@ -1214,16 +1278,28 @@ export const LoginAndOnboardingView: React.FC = () => {
                     </button>
                   ) : (
                     <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 space-y-3">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
                           <KeyRound className="w-4 h-4 text-amber-700" />
                           <span>Enter Student OTP</span>
                         </span>
-                        {studentServerOtpPreview && (
-                          <span className="text-xs font-mono font-bold bg-slate-900 text-amber-400 px-2.5 py-1 rounded-md">
-                            Instant OTP: {studentServerOtpPreview}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {studentWhatsappUrl && (
+                            <a
+                              href={studentWhatsappUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] font-bold bg-emerald-600 text-white px-2.5 py-1 rounded-md hover:bg-emerald-700"
+                            >
+                              Get OTP on WhatsApp
+                            </a>
+                          )}
+                          {studentServerOtpPreview && (
+                            <span className="text-xs font-mono font-bold bg-slate-900 text-amber-400 px-2.5 py-1 rounded-md">
+                              OTP: {studentServerOtpPreview}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <input
                         type="text"
